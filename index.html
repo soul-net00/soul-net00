@@ -1,12 +1,1528 @@
-!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <title>My First Website</title>
-</head>
-<body>
-  <h1>🚀 Hello, world!</h1>
-  <p>This is my free website hosted on GitHub Pages.</p>
-  <p>Made with just my phone 📱</p>
-</body>
-</html>
+Imports System.Data.SqlClient
+Imports System.IO
+Imports System.Drawing.Printing
+Imports System.Text
+
+' ========================================================================================
+' ERROR HANDLER MODULE - COMPLETE
+' ========================================================================================
+Public Module ErrorHandler
+
+    Public Sub LogError(ex As Exception, methodName As String, Optional additionalInfo As String = "")
+        Try
+            Dim logPath As String = Path.Combine(Application.StartupPath, "ErrorLogs")
+            If Not Directory.Exists(logPath) Then
+                Directory.CreateDirectory(logPath)
+            End If
+
+            Dim logFile As String = Path.Combine(logPath, $"ErrorLog_{DateTime.Now:yyyy-MM-dd}.txt")
+            Dim logEntry As String = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] " & vbCrLf &
+                                    $"Method: {methodName}" & vbCrLf &
+                                    $"Error: {ex.Message}" & vbCrLf &
+                                    $"Stack Trace: {ex.StackTrace}" & vbCrLf
+
+            If Not String.IsNullOrEmpty(additionalInfo) Then
+                logEntry &= $"Additional Info: {additionalInfo}" & vbCrLf
+            End If
+
+            logEntry &= New String("="c, 80) & vbCrLf & vbCrLf
+
+            File.AppendAllText(logFile, logEntry)
+        Catch logEx As Exception
+            MessageBox.Show($"Failed to write error log: {logEx.Message}", "Logging Error",
+                          MessageBoxButtons.OK, MessageBoxIcon.Warning)
+        End Try
+    End Sub
+
+    Public Function GetFriendlyMessage(ex As Exception) As String
+        Select Case True
+            Case TypeOf ex Is SqlException
+                Dim sqlEx As SqlException = CType(ex, SqlException)
+                Return GetSqlErrorMessage(sqlEx)
+            Case TypeOf ex Is IOException
+                Return "File operation failed. Please check file permissions and try again."
+            Case TypeOf ex Is UnauthorizedAccessException
+                Return "Access denied. Please check your permissions."
+            Case TypeOf ex Is FormatException
+                Return "Invalid data format. Please check your input and try again."
+            Case TypeOf ex Is InvalidOperationException
+                Return "Invalid operation. Please ensure all required fields are filled."
+            Case TypeOf ex Is ArgumentException
+                Return "Invalid argument provided. Please check your input."
+            Case TypeOf ex Is OutOfMemoryException
+                Return "Image file is too large. Please use a smaller image."
+            Case Else
+                Return "An unexpected error occurred. Please try again."
+        End Select
+    End Function
+
+    Private Function GetSqlErrorMessage(sqlEx As SqlException) As String
+        Select Case sqlEx.Number
+            Case -1
+                Return "Database connection timeout. Please check your network connection."
+            Case -2
+                Return "Database operation timeout. Please try again."
+            Case 2
+                Return "Cannot connect to database. Please check if SQL Server is running."
+            Case 53
+                Return "Database server not found. Please verify server name."
+            Case 18456
+                Return "Database login failed. Please check your credentials."
+            Case 2601, 2627
+                Return "This record already exists in the database."
+            Case 547
+                Return "Cannot delete this record as it is referenced by other records."
+            Case 515
+                Return "Required field is missing. Please fill all mandatory fields."
+            Case 208
+                Return "Database table not found. The application will create it automatically."
+            Case Else
+                Return $"Database error: {sqlEx.Message}"
+        End Select
+    End Function
+
+    Public Sub ShowError(ex As Exception, methodName As String, Optional additionalInfo As String = "")
+        LogError(ex, methodName, additionalInfo)
+        Dim friendlyMessage As String = GetFriendlyMessage(ex)
+        MessageBox.Show(friendlyMessage, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
+    End Sub
+
+End Module
+
+' ========================================================================================
+' MAIN FORM CLASS
+' ========================================================================================
+Public Class MainForm
+    ' ========================================================================================
+    ' GLOBAL VARIABLES
+    ' ========================================================================================
+    Dim connString As String = "Data Source=.\SQLEXPRESS;Initial Catalog=CellphoneShopDB;Integrated Security=True"
+    Dim conn As SqlConnection
+    Dim currentTotal As Decimal = 0
+    Private isUnlocked As Boolean = False
+
+    ' ========================================================================================
+    ' COMPANY SETTINGS CLASS
+    ' ========================================================================================
+    Public Class CompanySettings
+        Public Shared CompanyName As String = "CELLPHONE REPAIR SHOP"
+        Public Shared Phone As String = "(555) 123-4567"
+        Public Shared Email As String = "info@cellshop.com"
+        Public Shared Address As String = "123 Main Street, City, State"
+        Public Shared LogoPath As String = ""
+        Public Shared WarrantyText As String = "Warranty: 30 days on all repairs"
+        Public Shared Password As String = "admin123"
+    End Class
+
+    ' ========================================================================================
+    ' UNIQUE CODE GENERATOR CLASS
+    ' ========================================================================================
+    Public Class ReceiptCodeGenerator
+        Private Shared ReadOnly Random As New Random()
+
+        Public Shared Function GenerateCode() As String
+            Dim year As String = DateTime.Now.Year.ToString()
+            Dim randomPart As String = GenerateRandomString(6)
+            Return $"RCP-{year}-{randomPart}"
+        End Function
+
+        Private Shared Function GenerateRandomString(length As Integer) As String
+            Const chars As String = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+            Dim result As New StringBuilder()
+
+            For i As Integer = 0 To length - 1
+                result.Append(chars(Random.Next(chars.Length)))
+            Next
+
+            Return result.ToString()
+        End Function
+
+        Public Shared Function IsValidCodeFormat(code As String) As Boolean
+            If String.IsNullOrWhiteSpace(code) Then Return False
+            Dim pattern As String = "^RCP-\d{4}-[A-Z0-9]{6}$"
+            Return System.Text.RegularExpressions.Regex.IsMatch(code.ToUpper(), pattern)
+        End Function
+    End Class
+
+    ' ========================================================================================
+    ' HELPER FUNCTIONS
+    ' ========================================================================================
+    Private Function FormatAsRand(amount As Decimal) As String
+        Return "R " & amount.ToString("N2")
+    End Function
+
+    Private Function IsValidPhone(phone As String) As Boolean
+        Dim digitsOnly As String = New String(phone.Where(Function(c) Char.IsDigit(c)).ToArray())
+        Return digitsOnly.Length >= 10
+    End Function
+
+    Private Function IsValidEmail(email As String) As Boolean
+        If String.IsNullOrWhiteSpace(email) Then Return True
+
+        Try
+            Dim addr As New System.Net.Mail.MailAddress(email)
+            Return addr.Address = email
+        Catch
+            Return False
+        End Try
+    End Function
+
+    ' ========================================================================================
+    ' FORM LOAD
+    ' ========================================================================================
+    Private Sub MainForm_Load(sender As Object, e As EventArgs) Handles MyBase.Load
+        Try
+            conn = New SqlConnection(connString)
+
+            Try
+                conn.Open()
+                conn.Close()
+            Catch ex As SqlException
+                ErrorHandler.ShowError(ex, "MainForm_Load - Database Connection")
+                MessageBox.Show("Cannot connect to database. Please ensure SQL Server is running and CellphoneShopDB exists.",
+                              "Database Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
+                Return
+            End Try
+
+            LoadCategories()
+            InitializeReceiptGrid()
+            InitializeHistoryGrid()
+            dtpDate.Value = DateTime.Now
+
+            If nudQuantity IsNot Nothing Then nudQuantity.DecimalPlaces = 0
+            If nudPrice IsNot Nothing Then nudPrice.DecimalPlaces = 2
+            If nudDiscount IsNot Nothing Then nudDiscount.DecimalPlaces = 0
+
+            If lblTotal IsNot Nothing Then lblTotal.Text = "Total: R 0.00"
+
+            If Label8 IsNot Nothing Then
+                Label8.Text = "Enter Phone / Receipt ID / Receipt Code:"
+            End If
+
+            If txtSearchPhone IsNot Nothing Then
+                txtSearchPhone.MaxLength = 50
+
+                Dim tooltip As New ToolTip()
+                tooltip.SetToolTip(txtSearchPhone,
+                    "You can search by:" & vbCrLf &
+                    "• Phone number (e.g., 0821234567)" & vbCrLf &
+                    "• Receipt ID (e.g., 123)" & vbCrLf &
+                    "• Receipt Code (e.g., RCP-2024-A7K9M3)")
+            End If
+
+            LockCustomizeTab()
+            LoadCompanySettings()
+            UpdatePreview()
+
+            MessageBox.Show("Application loaded successfully!" & vbCrLf & "Currency: South African Rand (R)",
+                          "Ready", MessageBoxButtons.OK, MessageBoxIcon.Information)
+        Catch ex As Exception
+            ErrorHandler.ShowError(ex, "MainForm_Load")
+        End Try
+    End Sub
+
+    ' ========================================================================================
+    ' INITIALIZE GRIDS
+    ' ========================================================================================
+    Private Sub InitializeReceiptGrid()
+        Try
+            If dgvReceipt Is Nothing Then Return
+
+            dgvReceipt.Columns.Clear()
+            dgvReceipt.Columns.Add("Description", "Item Description")
+            dgvReceipt.Columns.Add("Quantity", "Qty")
+            dgvReceipt.Columns.Add("Price", "Unit Price")
+            dgvReceipt.Columns.Add("Total", "Total")
+            dgvReceipt.Columns.Add("Category", "Category")
+            dgvReceipt.Columns("Description").Width = 250
+            dgvReceipt.Columns("Quantity").Width = 60
+            dgvReceipt.Columns("Price").Width = 100
+            dgvReceipt.Columns("Total").Width = 100
+            dgvReceipt.Columns("Category").Width = 150
+        Catch ex As Exception
+            ErrorHandler.LogError(ex, "InitializeReceiptGrid")
+        End Try
+    End Sub
+
+    Private Sub InitializeHistoryGrid()
+        Try
+            If dgvHistory Is Nothing Then Return
+
+            dgvHistory.Columns.Clear()
+            dgvHistory.AutoGenerateColumns = True
+            dgvHistory.AllowUserToAddRows = False
+            dgvHistory.AllowUserToDeleteRows = False
+            dgvHistory.ReadOnly = True
+            dgvHistory.SelectionMode = DataGridViewSelectionMode.FullRowSelect
+        Catch ex As Exception
+            ErrorHandler.LogError(ex, "InitializeHistoryGrid")
+        End Try
+    End Sub
+
+    ' ========================================================================================
+    ' LOAD CATEGORIES
+    ' ========================================================================================
+    Private Sub LoadCategories()
+        Try
+            If cboCategory Is Nothing Then Return
+
+            cboCategory.Items.Clear()
+            cboCategory.Items.Add("Repair Service")
+            cboCategory.Items.Add("Software Update")
+            cboCategory.Items.Add("Battery")
+            cboCategory.Items.Add("Screen Protector")
+            cboCategory.Items.Add("Phone Case")
+            cboCategory.Items.Add("Charger")
+            cboCategory.Items.Add("Cable")
+            cboCategory.Items.Add("Earphones")
+            cboCategory.Items.Add("Memory Card")
+            cboCategory.Items.Add("SIM Card")
+            cboCategory.Items.Add("Other Accessories")
+            cboCategory.DropDownStyle = ComboBoxStyle.DropDown
+            cboCategory.SelectedIndex = 0
+        Catch ex As Exception
+            ErrorHandler.ShowError(ex, "LoadCategories")
+        End Try
+    End Sub
+
+    ' ========================================================================================
+    ' ADD ITEM BUTTON
+    ' ========================================================================================
+    Private Sub btnAddItem_Click(sender As Object, e As EventArgs) Handles btnAddItem.Click
+        Try
+            If String.IsNullOrWhiteSpace(cboCategory.Text) Then
+                MessageBox.Show("Please select or enter a category", "Validation", MessageBoxButtons.OK, MessageBoxIcon.Warning)
+                cboCategory.Focus()
+                Return
+            End If
+
+            If String.IsNullOrWhiteSpace(txtDescription.Text) Then
+                MessageBox.Show("Please enter item description", "Validation", MessageBoxButtons.OK, MessageBoxIcon.Warning)
+                txtDescription.Focus()
+                Return
+            End If
+
+            If nudQuantity.Value <= 0 Then
+                MessageBox.Show("Quantity must be greater than 0", "Validation", MessageBoxButtons.OK, MessageBoxIcon.Warning)
+                Return
+            End If
+
+            If nudPrice.Value <= 0 Then
+                MessageBox.Show("Price must be greater than 0", "Validation", MessageBoxButtons.OK, MessageBoxIcon.Warning)
+                Return
+            End If
+
+            Dim itemTotal As Decimal = nudQuantity.Value * nudPrice.Value
+
+            If chkDiscount.Checked Then
+                If nudDiscount.Value < 0 OrElse nudDiscount.Value > 100 Then
+                    MessageBox.Show("Discount must be between 0% and 100%", "Validation", MessageBoxButtons.OK, MessageBoxIcon.Warning)
+                    Return
+                End If
+                Dim discountAmount As Decimal = itemTotal * (nudDiscount.Value / 100)
+                itemTotal = itemTotal - discountAmount
+            End If
+
+            dgvReceipt.Rows.Add(
+                txtDescription.Text.Trim(),
+                nudQuantity.Value.ToString(),
+                FormatAsRand(nudPrice.Value),
+                FormatAsRand(itemTotal),
+                cboCategory.Text.Trim()
+            )
+
+            currentTotal += itemTotal
+            lblTotal.Text = "Total: " & FormatAsRand(currentTotal)
+
+            If Not cboCategory.Items.Contains(cboCategory.Text.Trim()) Then
+                cboCategory.Items.Add(cboCategory.Text.Trim())
+            End If
+
+            ClearItemInputs()
+
+        Catch ex As Exception
+            ErrorHandler.ShowError(ex, "btnAddItem_Click")
+        End Try
+    End Sub
+
+    ' ========================================================================================
+    ' CLEAR ITEM INPUTS
+    ' ========================================================================================
+    Private Sub ClearItemInputs()
+        Try
+            If txtDescription IsNot Nothing Then txtDescription.Clear()
+            If nudQuantity IsNot Nothing Then nudQuantity.Value = 1
+            If nudPrice IsNot Nothing Then nudPrice.Value = 0
+            If chkDiscount IsNot Nothing Then chkDiscount.Checked = False
+            If nudDiscount IsNot Nothing Then
+                nudDiscount.Value = 0
+                nudDiscount.Enabled = False
+            End If
+            If cboCategory IsNot Nothing Then cboCategory.SelectedIndex = 0
+            If txtDescription IsNot Nothing Then txtDescription.Focus()
+        Catch ex As Exception
+            ErrorHandler.LogError(ex, "ClearItemInputs")
+        End Try
+    End Sub
+
+    ' ========================================================================================
+    ' REMOVE ITEM BUTTON
+    ' ========================================================================================
+    Private Sub btnRemoveItem_Click(sender As Object, e As EventArgs) Handles btnRemoveItem.Click
+        Try
+            If dgvReceipt.SelectedRows.Count = 0 Then
+                MessageBox.Show("Please select an item to remove", "No Selection", MessageBoxButtons.OK, MessageBoxIcon.Warning)
+                Return
+            End If
+
+            Dim totalStr As String = dgvReceipt.SelectedRows(0).Cells("Total").Value.ToString()
+            totalStr = totalStr.Replace("R", "").Replace(",", "").Replace(" ", "").Trim()
+
+            Dim rowTotal As Decimal = Decimal.Parse(totalStr)
+            currentTotal -= rowTotal
+            If currentTotal < 0 Then currentTotal = 0
+
+            lblTotal.Text = "Total: " & FormatAsRand(currentTotal)
+            dgvReceipt.Rows.RemoveAt(dgvReceipt.SelectedRows(0).Index)
+
+            MessageBox.Show("Item removed successfully!", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information)
+        Catch ex As Exception
+            ErrorHandler.ShowError(ex, "btnRemoveItem_Click")
+        End Try
+    End Sub
+
+    ' ========================================================================================
+    ' NEW RECEIPT BUTTON
+    ' ========================================================================================
+    Private Sub btnNewReceipt_Click(sender As Object, e As EventArgs) Handles btnNewReceipt.Click
+        Try
+            If dgvReceipt.Rows.Count > 0 Then
+                If MessageBox.Show("Clear current receipt?", "Confirm", MessageBoxButtons.YesNo, MessageBoxIcon.Question) = DialogResult.No Then
+                    Return
+                End If
+            End If
+            ClearAll()
+        Catch ex As Exception
+            ErrorHandler.ShowError(ex, "btnNewReceipt_Click")
+        End Try
+    End Sub
+
+    ' ========================================================================================
+    ' CLEAR ALL
+    ' ========================================================================================
+    Private Sub ClearAll()
+        Try
+            If txtPhone IsNot Nothing Then txtPhone.Clear()
+            If txtCustomerName IsNot Nothing Then txtCustomerName.Clear()
+            If txtEmail IsNot Nothing Then txtEmail.Clear()
+            If txtNotes IsNot Nothing Then txtNotes.Clear()
+            If dgvReceipt IsNot Nothing Then dgvReceipt.Rows.Clear()
+            currentTotal = 0
+            If lblTotal IsNot Nothing Then lblTotal.Text = "Total: R 0.00"
+            ClearItemInputs()
+            If dtpDate IsNot Nothing Then dtpDate.Value = DateTime.Now
+            If txtPhone IsNot Nothing Then txtPhone.Focus()
+        Catch ex As Exception
+            ErrorHandler.LogError(ex, "ClearAll")
+        End Try
+    End Sub
+
+    ' ========================================================================================
+    ' SAVE RECEIPT BUTTON - WITH UNIQUE CODE
+    ' ========================================================================================
+    Private Sub btnSaveReceipt_Click(sender As Object, e As EventArgs) Handles btnSaveReceipt.Click
+        If String.IsNullOrWhiteSpace(txtPhone.Text) Then
+            MessageBox.Show("Please enter customer phone number", "Validation", MessageBoxButtons.OK, MessageBoxIcon.Warning)
+            txtPhone.Focus()
+            Return
+        End If
+
+        If Not IsValidPhone(txtPhone.Text) Then
+            MessageBox.Show("Phone number must contain at least 10 digits", "Validation", MessageBoxButtons.OK, MessageBoxIcon.Warning)
+            txtPhone.Focus()
+            Return
+        End If
+
+        If Not String.IsNullOrWhiteSpace(txtEmail.Text) AndAlso Not IsValidEmail(txtEmail.Text) Then
+            MessageBox.Show("Please enter a valid email address", "Validation", MessageBoxButtons.OK, MessageBoxIcon.Warning)
+            txtEmail.Focus()
+            Return
+        End If
+
+        If dgvReceipt.Rows.Count = 0 Then
+            MessageBox.Show("Please add at least one item", "Validation", MessageBoxButtons.OK, MessageBoxIcon.Warning)
+            Return
+        End If
+
+        Dim transaction As SqlTransaction = Nothing
+        Dim generatedCode As String = ""
+
+        Try
+            conn.Open()
+            transaction = conn.BeginTransaction()
+
+            ' Generate unique code
+            Dim codeIsUnique As Boolean = False
+            Dim attempts As Integer = 0
+
+            While Not codeIsUnique AndAlso attempts < 10
+                generatedCode = ReceiptCodeGenerator.GenerateCode()
+
+                Dim cmdCheckCode As New SqlCommand(
+                    "SELECT COUNT(*) FROM Receipts WHERE UniqueCode = @Code", conn, transaction)
+                cmdCheckCode.Parameters.AddWithValue("@Code", generatedCode)
+
+                Dim count As Integer = CInt(cmdCheckCode.ExecuteScalar())
+                codeIsUnique = (count = 0)
+                attempts += 1
+            End While
+
+            If Not codeIsUnique Then
+                Throw New Exception("Failed to generate unique receipt code. Please try again.")
+            End If
+
+            ' Save customer
+            Dim cmdCustomer As New SqlCommand(
+                "IF NOT EXISTS (SELECT 1 FROM Customers WHERE Phone = @Phone) " &
+                "INSERT INTO Customers (Phone, Name, Email) VALUES (@Phone, @Name, @Email) " &
+                "ELSE UPDATE Customers SET Name = @Name, Email = @Email WHERE Phone = @Phone", conn, transaction)
+
+            cmdCustomer.Parameters.AddWithValue("@Phone", txtPhone.Text.Trim())
+            cmdCustomer.Parameters.AddWithValue("@Name", If(String.IsNullOrWhiteSpace(txtCustomerName.Text), DBNull.Value, txtCustomerName.Text.Trim()))
+            cmdCustomer.Parameters.AddWithValue("@Email", If(String.IsNullOrWhiteSpace(txtEmail.Text), DBNull.Value, txtEmail.Text.Trim()))
+            cmdCustomer.ExecuteNonQuery()
+
+            ' Save receipt with unique code
+            Dim cmdReceipt As New SqlCommand(
+                "INSERT INTO Receipts (CustomerPhone, ReceiptDate, TotalAmount, Notes, UniqueCode) " &
+                "VALUES (@Phone, @Date, @Total, @Notes, @Code); SELECT SCOPE_IDENTITY();", conn, transaction)
+
+            cmdReceipt.Parameters.AddWithValue("@Phone", txtPhone.Text.Trim())
+            cmdReceipt.Parameters.AddWithValue("@Date", dtpDate.Value)
+            cmdReceipt.Parameters.AddWithValue("@Total", currentTotal)
+            cmdReceipt.Parameters.AddWithValue("@Notes", If(String.IsNullOrWhiteSpace(txtNotes.Text), DBNull.Value, txtNotes.Text.Trim()))
+            cmdReceipt.Parameters.AddWithValue("@Code", generatedCode)
+
+            Dim receiptId As Integer = Convert.ToInt32(cmdReceipt.ExecuteScalar())
+
+            ' Save items
+            For Each row As DataGridViewRow In dgvReceipt.Rows
+                Dim priceStr As String = row.Cells("Price").Value.ToString().Replace("R", "").Replace(",", "").Replace(" ", "").Trim()
+                Dim totalStr As String = row.Cells("Total").Value.ToString().Replace("R", "").Replace(",", "").Replace(" ", "").Trim()
+
+                Dim cmdItem As New SqlCommand(
+                    "INSERT INTO ReceiptItems (ReceiptID, Description, Quantity, Price, Total, Category) " &
+                    "VALUES (@ReceiptID, @Desc, @Qty, @Price, @Total, @Category)", conn, transaction)
+
+                cmdItem.Parameters.AddWithValue("@ReceiptID", receiptId)
+                cmdItem.Parameters.AddWithValue("@Desc", row.Cells("Description").Value.ToString())
+                cmdItem.Parameters.AddWithValue("@Qty", Convert.ToInt32(row.Cells("Quantity").Value))
+                cmdItem.Parameters.AddWithValue("@Price", Decimal.Parse(priceStr))
+                cmdItem.Parameters.AddWithValue("@Total", Decimal.Parse(totalStr))
+                cmdItem.Parameters.AddWithValue("@Category", row.Cells("Category").Value.ToString())
+                cmdItem.ExecuteNonQuery()
+            Next
+
+            transaction.Commit()
+
+            MessageBox.Show($"Receipt saved successfully!{vbCrLf}Receipt ID: {receiptId}{vbCrLf}Unique Code: {generatedCode}{vbCrLf}Total: {FormatAsRand(currentTotal)}",
+                          "Success", MessageBoxButtons.OK, MessageBoxIcon.Information)
+
+            If MessageBox.Show("Print receipt?", "Print", MessageBoxButtons.YesNo, MessageBoxIcon.Question) = DialogResult.Yes Then
+                PrintReceipt(receiptId, generatedCode)
+            End If
+
+            ClearAll()
+
+        Catch ex As Exception
+            If transaction IsNot Nothing Then
+                Try
+                    transaction.Rollback()
+                Catch
+                End Try
+            End If
+            ErrorHandler.ShowError(ex, "btnSaveReceipt_Click")
+        Finally
+            If conn.State = ConnectionState.Open Then conn.Close()
+        End Try
+    End Sub
+
+    ' ========================================================================================
+    ' ENHANCED SEARCH - SUPPORTS PHONE / ID / UNIQUE CODE
+    ' ========================================================================================
+    Private Sub btnSearchCustomer_Click(sender As Object, e As EventArgs) Handles btnSearchCustomer.Click
+        Try
+            If String.IsNullOrWhiteSpace(txtSearchPhone.Text) Then
+                MessageBox.Show("Please enter phone number, receipt ID, or receipt code", "Validation", MessageBoxButtons.OK, MessageBoxIcon.Warning)
+                txtSearchPhone.Focus()
+                Return
+            End If
+
+            Dim searchValue As String = txtSearchPhone.Text.Trim()
+
+            conn.Open()
+
+            If ReceiptCodeGenerator.IsValidCodeFormat(searchValue) Then
+                SearchByUniqueCode(searchValue.ToUpper())
+            ElseIf Integer.TryParse(searchValue, Nothing) Then
+                SearchByReceiptID(Integer.Parse(searchValue))
+            Else
+                SearchByPhoneNumber(searchValue)
+            End If
+
+            conn.Close()
+
+        Catch ex As Exception
+            ErrorHandler.ShowError(ex, "btnSearchCustomer_Click")
+        Finally
+            If conn.State = ConnectionState.Open Then conn.Close()
+        End Try
+    End Sub
+
+    Private Sub SearchByUniqueCode(uniqueCode As String)
+        Try
+            Dim cmdReceipt As New SqlCommand(
+                "SELECT r.ReceiptID, r.CustomerPhone, r.ReceiptDate, r.TotalAmount, r.Notes, " &
+                "c.Name, c.Email FROM Receipts r " &
+                "LEFT JOIN Customers c ON r.CustomerPhone = c.Phone " &
+                "WHERE r.UniqueCode = @Code", conn)
+            cmdReceipt.Parameters.AddWithValue("@Code", uniqueCode)
+
+            Dim reader As SqlDataReader = cmdReceipt.ExecuteReader()
+
+            If reader.Read() Then
+                Dim receiptId As Integer = CInt(reader("ReceiptID"))
+                Dim customerName As String = If(IsDBNull(reader("Name")), "N/A", reader("Name").ToString())
+                Dim customerEmail As String = If(IsDBNull(reader("Email")), "N/A", reader("Email").ToString())
+                Dim customerPhone As String = reader("CustomerPhone").ToString()
+                Dim amount As Decimal = CDec(reader("TotalAmount"))
+                Dim receiptDate As DateTime = CDate(reader("ReceiptDate"))
+
+                lblCustomerInfo.Text = $"Code: {uniqueCode} | Receipt #{receiptId} | Customer: {customerName} | Phone: {customerPhone}"
+
+                reader.Close()
+
+                Dim cmdHistory As New SqlCommand(
+                    "SELECT r.ReceiptID, r.UniqueCode, r.ReceiptDate, r.TotalAmount, r.Notes " &
+                    "FROM Receipts r WHERE r.UniqueCode = @Code", conn)
+                cmdHistory.Parameters.AddWithValue("@Code", uniqueCode)
+
+                Dim adapter As New SqlDataAdapter(cmdHistory)
+                Dim table As New DataTable()
+                adapter.Fill(table)
+
+                table.Columns.Add("AmountInRand", GetType(String))
+                For Each dataRow As DataRow In table.Rows
+                    dataRow("AmountInRand") = FormatAsRand(CDec(dataRow("TotalAmount")))
+                Next
+
+                dgvHistory.DataSource = table
+                ConfigureHistoryGrid()
+
+                MessageBox.Show($"Receipt found by code!{vbCrLf}Code: {uniqueCode}{vbCrLf}Receipt ID: {receiptId}{vbCrLf}Date: {receiptDate:dd/MM/yyyy}{vbCrLf}Amount: {FormatAsRand(amount)}",
+                              "Receipt Found", MessageBoxButtons.OK, MessageBoxIcon.Information)
+            Else
+                reader.Close()
+                MessageBox.Show($"Receipt with code '{uniqueCode}' not found", "Not Found", MessageBoxButtons.OK, MessageBoxIcon.Information)
+                lblCustomerInfo.Text = "Receipt not found"
+                dgvHistory.DataSource = Nothing
+            End If
+
+        Catch ex As Exception
+            ErrorHandler.ShowError(ex, "SearchByUniqueCode")
+        End Try
+    End Sub
+
+    Private Sub SearchByReceiptID(receiptId As Integer)
+        Try
+            Dim cmdReceipt As New SqlCommand(
+                "SELECT r.ReceiptID, r.CustomerPhone, r.ReceiptDate, r.TotalAmount, r.Notes, r.UniqueCode, " &
+                "c.Name, c.Email FROM Receipts r " &
+                "LEFT JOIN Customers c ON r.CustomerPhone = c.Phone " &
+                "WHERE r.ReceiptID = @ReceiptID", conn)
+            cmdReceipt.Parameters.AddWithValue("@ReceiptID", receiptId)
+
+            Dim reader As SqlDataReader = cmdReceipt.ExecuteReader()
+
+            If reader.Read() Then
+                Dim customerName As String = If(IsDBNull(reader("Name")), "N/A", reader("Name").ToString())
+                Dim customerEmail As String = If(IsDBNull(reader("Email")), "N/A", reader("Email").ToString())
+                Dim customerPhone As String = reader("CustomerPhone").ToString()
+                Dim amount As Decimal = CDec(reader("TotalAmount"))
+                Dim receiptDate As DateTime = CDate(reader("ReceiptDate"))
+                Dim uniqueCode As String = If(IsDBNull(reader("UniqueCode")), "N/A", reader("UniqueCode").ToString())
+
+                lblCustomerInfo.Text = $"Receipt #{receiptId} | Code: {uniqueCode} | Customer: {customerName} | Phone: {customerPhone}"
+
+                reader.Close()
+
+                Dim cmdHistory As New SqlCommand(
+                    "SELECT r.ReceiptID, r.UniqueCode, r.ReceiptDate, r.TotalAmount, r.Notes " &
+                    "FROM Receipts r WHERE r.ReceiptID = @ReceiptID", conn)
+                cmdHistory.Parameters.AddWithValue("@ReceiptID", receiptId)
+
+                Dim adapter As New SqlDataAdapter(cmdHistory)
+                Dim table As New DataTable()
+                adapter.Fill(table)
+
+                table.Columns.Add("AmountInRand", GetType(String))
+                For Each dataRow As DataRow In table.Rows
+                    dataRow("AmountInRand") = FormatAsRand(CDec(dataRow("TotalAmount")))
+                Next
+
+                dgvHistory.DataSource = table
+                ConfigureHistoryGrid()
+
+                MessageBox.Show($"Receipt #{receiptId} found!{vbCrLf}Code: {uniqueCode}{vbCrLf}Date: {receiptDate:dd/MM/yyyy}{vbCrLf}Amount: {FormatAsRand(amount)}",
+                              "Receipt Found", MessageBoxButtons.OK, MessageBoxIcon.Information)
+            Else
+                reader.Close()
+                MessageBox.Show($"Receipt #{receiptId} not found", "Not Found", MessageBoxButtons.OK, MessageBoxIcon.Information)
+                lblCustomerInfo.Text = "Receipt not found"
+                dgvHistory.DataSource = Nothing
+            End If
+
+        Catch ex As Exception
+            ErrorHandler.ShowError(ex, "SearchByReceiptID")
+        End Try
+    End Sub
+
+    Private Sub SearchByPhoneNumber(phoneNumber As String)
+        Try
+            Dim cmdCustomer As New SqlCommand("SELECT Name, Email FROM Customers WHERE Phone = @Phone", conn)
+            cmdCustomer.Parameters.AddWithValue("@Phone", phoneNumber)
+
+            Dim reader As SqlDataReader = cmdCustomer.ExecuteReader()
+
+            If reader.Read() Then
+                Dim customerName As String = If(IsDBNull(reader("Name")), "N/A", reader("Name").ToString())
+                Dim customerEmail As String = If(IsDBNull(reader("Email")), "N/A", reader("Email").ToString())
+                lblCustomerInfo.Text = $"Customer: {customerName} | Email: {customerEmail}"
+                reader.Close()
+
+                Dim cmdHistory As New SqlCommand(
+                    "SELECT r.ReceiptID, r.UniqueCode, r.ReceiptDate, r.TotalAmount, r.Notes " &
+                    "FROM Receipts r WHERE r.CustomerPhone = @Phone ORDER BY r.ReceiptDate DESC", conn)
+                cmdHistory.Parameters.AddWithValue("@Phone", phoneNumber)
+
+                Dim adapter As New SqlDataAdapter(cmdHistory)
+                Dim table As New DataTable()
+                adapter.Fill(table)
+
+                table.Columns.Add("AmountInRand", GetType(String))
+                For Each dataRow As DataRow In table.Rows
+                    dataRow("AmountInRand") = FormatAsRand(CDec(dataRow("TotalAmount")))
+                Next
+
+                dgvHistory.DataSource = table
+                ConfigureHistoryGrid()
+
+                MessageBox.Show($"Found {table.Rows.Count} receipt(s) for this customer",
+                              "Search Complete", MessageBoxButtons.OK, MessageBoxIcon.Information)
+            Else
+                reader.Close()
+                MessageBox.Show("Customer not found", "Not Found", MessageBoxButtons.OK, MessageBoxIcon.Information)
+                lblCustomerInfo.Text = "Customer not found"
+                dgvHistory.DataSource = Nothing
+            End If
+
+        Catch ex As Exception
+            ErrorHandler.ShowError(ex, "SearchByPhoneNumber")
+        End Try
+    End Sub
+
+    Private Sub ConfigureHistoryGrid()
+        Try
+            If dgvHistory.Columns.Contains("ReceiptID") Then
+                dgvHistory.Columns("ReceiptID").HeaderText = "Receipt #"
+                dgvHistory.Columns("ReceiptID").Width = 80
+            End If
+            If dgvHistory.Columns.Contains("UniqueCode") Then
+                dgvHistory.Columns("UniqueCode").HeaderText = "Receipt Code"
+                dgvHistory.Columns("UniqueCode").Width = 150
+            End If
+            If dgvHistory.Columns.Contains("ReceiptDate") Then
+                dgvHistory.Columns("ReceiptDate").HeaderText = "Date"
+                dgvHistory.Columns("ReceiptDate").Width = 120
+            End If
+            If dgvHistory.Columns.Contains("TotalAmount") Then
+                dgvHistory.Columns("TotalAmount").Visible = False
+            End If
+            If dgvHistory.Columns.Contains("AmountInRand") Then
+                dgvHistory.Columns("AmountInRand").HeaderText = "Total Amount"
+                dgvHistory.Columns("AmountInRand").Width = 150
+            End If
+            If dgvHistory.Columns.Contains("Notes") Then
+                dgvHistory.Columns("Notes").HeaderText = "Notes"
+                dgvHistory.Columns("Notes").AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill
+            End If
+        Catch ex As Exception
+            ErrorHandler.LogError(ex, "ConfigureHistoryGrid")
+        End Try
+    End Sub
+
+    ' ========================================================================================
+    ' DOUBLE CLICK HISTORY ROW
+    ' ========================================================================================
+    Private Sub dgvHistory_CellDoubleClick(sender As Object, e As DataGridViewCellEventArgs) Handles dgvHistory.CellDoubleClick
+        Try
+            If e.RowIndex >= 0 AndAlso dgvHistory.Rows(e.RowIndex).Cells("ReceiptID").Value IsNot Nothing Then
+                Dim receiptId As Integer = Convert.ToInt32(dgvHistory.Rows(e.RowIndex).Cells("ReceiptID").Value)
+                ViewReceiptDetails(receiptId)
+            End If
+        Catch ex As Exception
+            ErrorHandler.ShowError(ex, "dgvHistory_CellDoubleClick")
+        End Try
+    End Sub
+
+    Private Sub ViewReceiptDetails(receiptId As Integer)
+        Try
+            conn.Open()
+            Dim cmd As New SqlCommand(
+                "SELECT Description, Quantity, Price, Total, Category " &
+                "FROM ReceiptItems WHERE ReceiptID = @ID ORDER BY ItemID", conn)
+            cmd.Parameters.AddWithValue("@ID", receiptId)
+
+            Dim da As New SqlDataAdapter(cmd)
+            Dim dt As New DataTable()
+            da.Fill(dt)
+
+            Dim details As String = $"RECEIPT #{receiptId} - FULL DETAILS{vbCrLf}{vbCrLf}"
+            details &= String.Format("{0,-30} {1,8} {2,12} {3,12}", "Description", "Qty", "Price", "Total") & vbCrLf
+            details &= New String("="c, 65) & vbCrLf
+
+            Dim grandTotal As Decimal = 0
+            For Each row As DataRow In dt.Rows
+                details &= String.Format("{0,-30} {1,8} {2,12} {3,12}",
+                                       row("Description").ToString(),
+                                       row("Quantity"),
+                                       FormatAsRand(CDec(row("Price"))),
+                                       FormatAsRand(CDec(row("Total")))) & vbCrLf
+                grandTotal += CDec(row("Total"))
+            Next
+
+            details &= New String("="c, 65) & vbCrLf
+            details &= String.Format("{0,-30} {1,8} {2,12} {3,12}", "", "", "TOTAL:", FormatAsRand(grandTotal))
+
+            MessageBox.Show(details, "Receipt Details", MessageBoxButtons.OK, MessageBoxIcon.Information)
+            conn.Close()
+
+        Catch ex As Exception
+            ErrorHandler.ShowError(ex, "ViewReceiptDetails")
+        Finally
+            If conn.State = ConnectionState.Open Then conn.Close()
+        End Try
+    End Sub
+
+    ' ========================================================================================
+    ' PRINT RECEIPT
+    ' ========================================================================================
+    Private Sub PrintReceipt(receiptId As Integer, Optional uniqueCode As String = "")
+        Try
+            Dim printDoc As New PrintDocument()
+            AddHandler printDoc.PrintPage, Sub(sender, e) PrintReceiptPage(sender, e, receiptId, uniqueCode)
+
+            Dim printPreview As New PrintPreviewDialog()
+            printPreview.Document = printDoc
+            printPreview.Width = 800
+            printPreview.Height = 600
+            printPreview.ShowDialog()
+        Catch ex As Exception
+            ErrorHandler.ShowError(ex, "PrintReceipt")
+        End Try
+    End Sub
+
+    Private Sub PrintReceiptPage(sender As Object, e As PrintPageEventArgs, receiptId As Integer, Optional uniqueCode As String = "")
+        Try
+            Dim fontSmall As New Font("Arial", 7)
+            Dim font As New Font("Arial", 9)
+            Dim fontBold As New Font("Arial", 10, FontStyle.Bold)
+            Dim fontTitle As New Font("Arial", 18, FontStyle.Bold)
+            Dim fontSubtitle As New Font("Arial", 9)
+
+            Dim leftMargin As Integer = 60
+            Dim rightMargin As Integer = e.PageBounds.Width - 60
+            Dim pageWidth As Integer = rightMargin - leftMargin
+            Dim y As Integer = 40
+
+            ' Logo
+            Dim logoWidth As Integer = 80
+            If Not String.IsNullOrEmpty(CompanySettings.LogoPath) AndAlso File.Exists(CompanySettings.LogoPath) Then
+                Try
+                    Dim logo As Image = Image.FromFile(CompanySettings.LogoPath)
+                    e.Graphics.DrawImage(logo, leftMargin, y, logoWidth, 80)
+                Catch ex As Exception
+                    ErrorHandler.LogError(ex, "PrintReceiptPage - Logo")
+                End Try
+            End If
+
+            ' Company Name
+            Dim companyX As Integer = leftMargin + logoWidth + 20
+            e.Graphics.DrawString(CompanySettings.CompanyName, fontTitle, Brushes.Black, companyX, y)
+            y += 25
+
+            e.Graphics.DrawString("Tel: " & CompanySettings.Phone, fontSubtitle, Brushes.Black, companyX, y)
+            y += 15
+            e.Graphics.DrawString("Email: " & CompanySettings.Email, fontSubtitle, Brushes.Black, companyX, y)
+            y += 15
+            e.Graphics.DrawString("Address: " & CompanySettings.Address, fontSubtitle, Brushes.Black, companyX, y)
+            y += 40
+
+            e.Graphics.DrawLine(New Pen(Color.Black, 2), leftMargin, y, rightMargin, y)
+            y += 20
+
+            ' Receipt title
+            Dim receiptTitle As String = "SALES RECEIPT"
+            Dim titleSize = e.Graphics.MeasureString(receiptTitle, fontTitle)
+            e.Graphics.DrawString(receiptTitle, fontTitle, Brushes.Black,
+                                (e.PageBounds.Width - titleSize.Width) / 2, y)
+            y += 35
+
+            ' Receipt info box
+            Dim boxY As Integer = y
+            Dim boxHeight As Integer = If(String.IsNullOrEmpty(uniqueCode), 70, 90)
+            e.Graphics.DrawRectangle(Pens.Black, leftMargin, y, pageWidth, boxHeight)
+            y += 10
+
+            e.Graphics.DrawString("Receipt #:", fontBold, Brushes.Black, leftMargin + 10, y)
+            e.Graphics.DrawString(receiptId.ToString(), font, Brushes.Black, leftMargin + 100, y)
+            y += 20
+
+            If Not String.IsNullOrEmpty(uniqueCode) Then
+                e.Graphics.DrawString("Receipt Code:", fontBold, Brushes.Black, leftMargin + 10, y)
+                e.Graphics.DrawString(uniqueCode, New Font("Arial", 11, FontStyle.Bold),
+                                    Brushes.DarkBlue, leftMargin + 115, y - 2)
+                y += 20
+            End If
+
+            e.Graphics.DrawString("Date:", fontBold, Brushes.Black, leftMargin + 10, y)
+            e.Graphics.DrawString(dtpDate.Value.ToString("dd MMMM yyyy"), font, Brushes.Black, leftMargin + 100, y)
+
+            ' Customer details
+            y = boxY + 10
+            Dim rightCol As Integer = leftMargin + (pageWidth / 2) + 10
+
+            e.Graphics.DrawString("Customer:", fontBold, Brushes.Black, rightCol, y)
+            e.Graphics.DrawString(If(String.IsNullOrWhiteSpace(txtCustomerName.Text), "Walk-in Customer", txtCustomerName.Text),
+                                font, Brushes.Black, rightCol + 80, y)
+            y += 20
+
+            e.Graphics.DrawString("Phone:", fontBold, Brushes.Black, rightCol, y)
+            e.Graphics.DrawString(txtPhone.Text, font, Brushes.Black, rightCol + 80, y)
+
+            y = boxY + boxHeight + 15
+
+            ' Table header
+            e.Graphics.FillRectangle(New SolidBrush(Color.FromArgb(230, 230, 230)),
+                                    leftMargin, y, pageWidth, 25)
+            e.Graphics.DrawRectangle(Pens.Black, leftMargin, y, pageWidth, 25)
+
+            y += 5
+            e.Graphics.DrawString("Description", fontBold, Brushes.Black, leftMargin + 5, y)
+            e.Graphics.DrawString("Category", fontBold, Brushes.Black, leftMargin + 280, y)
+            e.Graphics.DrawString("Qty", fontBold, Brushes.Black, leftMargin + 420, y)
+            e.Graphics.DrawString("Unit Price", fontBold, Brushes.Black, leftMargin + 470, y)
+            e.Graphics.DrawString("Total", fontBold, Brushes.Black, leftMargin + 600, y)
+            y += 20
+
+            ' Table rows
+            Dim rowHeight As Integer = 22
+            For Each row As DataGridViewRow In dgvReceipt.Rows
+                If dgvReceipt.Rows.IndexOf(row) Mod 2 = 0 Then
+                    e.Graphics.FillRectangle(New SolidBrush(Color.FromArgb(250, 250, 250)),
+                                           leftMargin, y, pageWidth, rowHeight)
+                End If
+
+                e.Graphics.DrawRectangle(Pens.LightGray, leftMargin, y, pageWidth, rowHeight)
+
+                e.Graphics.DrawString(row.Cells("Description").Value.ToString(), font, Brushes.Black, leftMargin + 5, y + 4)
+                e.Graphics.DrawString(row.Cells("Category").Value.ToString(), font, Brushes.Black, leftMargin + 280, y + 4)
+                e.Graphics.DrawString(row.Cells("Quantity").Value.ToString(), font, Brushes.Black, leftMargin + 430, y + 4)
+                e.Graphics.DrawString(row.Cells("Price").Value.ToString(), font, Brushes.Black, leftMargin + 470, y + 4)
+                e.Graphics.DrawString(row.Cells("Total").Value.ToString(), font, Brushes.Black, leftMargin + 600, y + 4)
+
+                y += rowHeight
+            Next
+
+            y += 15
+
+            ' Total box
+            Dim totalBoxWidth As Integer = 200
+            Dim totalBoxX As Integer = rightMargin - totalBoxWidth
+            e.Graphics.FillRectangle(New SolidBrush(Color.FromArgb(240, 240, 240)),
+                                    totalBoxX, y, totalBoxWidth, 35)
+            e.Graphics.DrawRectangle(New Pen(Color.Black, 2), totalBoxX, y, totalBoxWidth, 35)
+
+            e.Graphics.DrawString("GRAND TOTAL:", New Font("Arial", 12, FontStyle.Bold),
+                                Brushes.Black, totalBoxX + 10, y + 8)
+            e.Graphics.DrawString(FormatAsRand(currentTotal), New Font("Arial", 12, FontStyle.Bold),
+                                Brushes.Black, totalBoxX + 130, y + 8)
+
+            y += 50
+
+            ' Notes
+            If Not String.IsNullOrWhiteSpace(txtNotes.Text) Then
+                e.Graphics.DrawString("Notes:", fontBold, Brushes.Black, leftMargin, y)
+                y += 18
+                e.Graphics.DrawString(txtNotes.Text, font, Brushes.Black,
+                                    New RectangleF(leftMargin, y, pageWidth, 40))
+                y += 55
+            End If
+
+            ' Warranty
+            e.Graphics.DrawLine(Pens.Gray, leftMargin, y, rightMargin, y)
+            y += 10
+
+            e.Graphics.DrawString(CompanySettings.WarrantyText, New Font("Arial", 9, FontStyle.Italic),
+                                Brushes.DarkGray, leftMargin, y)
+            y += 25
+
+            ' Disclaimer
+            e.Graphics.DrawLine(New Pen(Color.Black, 2), leftMargin, y, rightMargin, y)
+            y += 10
+
+            e.Graphics.DrawString("GENERAL SALES & REPAIRS DISCLAIMER",
+                                New Font("Arial", 9, FontStyle.Bold), Brushes.Black, leftMargin, y)
+            y += 18
+
+            Dim disclaimerText As String =
+                "All devices, accessories, and electronic equipment sold or repaired by us are handled in good faith. " &
+                "While every effort is made to ensure quality service and functional testing, we do not guarantee " &
+                "manufacturer warranty unless explicitly stated." & vbCrLf & vbCrLf &
+                "We are not responsible for:" & vbCrLf &
+                "• Pre-existing faults, hidden defects, or data loss on devices." & vbCrLf &
+                "• Damage caused by customer misuse, liquid exposure, power surges, or third-party repairs." & vbCrLf &
+                "• Software issues, data corruption, or loss of personal information during repairs. " &
+                "Customers are advised to back up all data before handing in devices." & vbCrLf & vbCrLf &
+                "All repairs are tested before release. Once the device leaves our premises, we are not liable for " &
+                "damage due to mishandling or unauthorized alterations." & vbCrLf & vbCrLf &
+                "Used or second-hand devices are sold as-is, unless otherwise agreed in writing. No refunds or exchanges " &
+                "after completion of service or sale, except where required by law." & vbCrLf & vbCrLf &
+                "By proceeding with a purchase or repair, the customer acknowledges and accepts these terms."
+
+            Dim disclaimerRect As New RectangleF(leftMargin, y, pageWidth, 200)
+            e.Graphics.DrawString(disclaimerText, fontSmall, Brushes.Black, disclaimerRect)
+
+            Dim disclaimerHeight = e.Graphics.MeasureString(disclaimerText, fontSmall, CInt(pageWidth))
+            y += CInt(disclaimerHeight.Height) + 20
+
+            ' Footer
+            Dim footerY As Integer = e.PageBounds.Height - 80
+
+            e.Graphics.DrawLine(Pens.Black, leftMargin, footerY, rightMargin, footerY)
+            footerY += 10
+
+            e.Graphics.DrawString("Customer Signature: _______________________", font, Brushes.Black, leftMargin, footerY)
+            e.Graphics.DrawString("Date: _____________", font, Brushes.Black, rightMargin - 150, footerY)
+
+            footerY += 25
+
+            Dim thankYouText As String = "Thank you for your business!"
+            Dim thankYouSize = e.Graphics.MeasureString(thankYouText, fontBold)
+            e.Graphics.DrawString(thankYouText, fontBold, Brushes.Black,
+                                (e.PageBounds.Width - thankYouSize.Width) / 2, footerY)
+
+            footerY += 20
+
+            Dim currencyText As String = "All prices in South African Rand (R)"
+            If Not String.IsNullOrEmpty(uniqueCode) Then
+                currencyText &= " | Search code: " & uniqueCode
+            End If
+
+            Dim currencySize = e.Graphics.MeasureString(currencyText, fontSmall)
+            e.Graphics.DrawString(currencyText, fontSmall, Brushes.Gray,
+                                (e.PageBounds.Width - currencySize.Width) / 2, footerY)
+
+        Catch ex As Exception
+            ErrorHandler.LogError(ex, "PrintReceiptPage")
+            MessageBox.Show("Error generating receipt: " & ex.Message, "Print Error",
+                          MessageBoxButtons.OK, MessageBoxIcon.Error)
+        End Try
+    End Sub
+
+    ' ========================================================================================
+    ' COMPANY SETTINGS
+    ' ========================================================================================
+    Private Sub LoadCompanySettings()
+        Try
+            EnsureCompanySettingsTableExists()
+
+            conn.Open()
+            Dim cmd As New SqlCommand("SELECT SettingName, SettingValue FROM CompanySettings", conn)
+            Dim reader As SqlDataReader = cmd.ExecuteReader()
+
+            While reader.Read()
+                Dim settingName As String = reader("SettingName").ToString()
+                Dim settingValue As String = reader("SettingValue").ToString()
+
+                Select Case settingName
+                    Case "CompanyName"
+                        CompanySettings.CompanyName = settingValue
+                    Case "Phone"
+                        CompanySettings.Phone = settingValue
+                    Case "Email"
+                        CompanySettings.Email = settingValue
+                    Case "Address"
+                        CompanySettings.Address = settingValue
+                    Case "LogoPath"
+                        CompanySettings.LogoPath = settingValue
+                    Case "WarrantyText"
+                        CompanySettings.WarrantyText = settingValue
+                    Case "Password"
+                        CompanySettings.Password = settingValue
+                End Select
+            End While
+            reader.Close()
+            conn.Close()
+
+            If txtCompanyName IsNot Nothing Then txtCompanyName.Text = CompanySettings.CompanyName
+            If txtCompanyPhone IsNot Nothing Then txtCompanyPhone.Text = CompanySettings.Phone
+            If txtCompanyEmail IsNot Nothing Then txtCompanyEmail.Text = CompanySettings.Email
+            If txtCompanyAddress IsNot Nothing Then txtCompanyAddress.Text = CompanySettings.Address
+            If txtWarranty IsNot Nothing Then txtWarranty.Text = CompanySettings.WarrantyText
+
+            If Not String.IsNullOrEmpty(CompanySettings.LogoPath) AndAlso File.Exists(CompanySettings.LogoPath) Then
+                Try
+                    If picLogo IsNot Nothing Then picLogo.Image = Image.FromFile(CompanySettings.LogoPath)
+                    If lblLogoPath IsNot Nothing Then lblLogoPath.Text = Path.GetFileName(CompanySettings.LogoPath)
+                Catch imgEx As Exception
+                    ErrorHandler.LogError(imgEx, "LoadCompanySettings - Logo Load")
+                    If lblLogoPath IsNot Nothing Then lblLogoPath.Text = "Logo file not found"
+                End Try
+            Else
+                If lblLogoPath IsNot Nothing Then lblLogoPath.Text = "No logo selected"
+            End If
+
+        Catch ex As SqlException When ex.Number = 208
+            ErrorHandler.LogError(ex, "LoadCompanySettings - Table Missing")
+            CreateCompanySettingsTable()
+        Catch ex As Exception
+            ErrorHandler.ShowError(ex, "LoadCompanySettings")
+        Finally
+            If conn.State = ConnectionState.Open Then conn.Close()
+        End Try
+    End Sub
+
+    Private Sub EnsureCompanySettingsTableExists()
+        Try
+            conn.Open()
+            Dim cmdCheck As New SqlCommand(
+                "IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'CompanySettings') " &
+                "SELECT 0 ELSE SELECT 1", conn)
+            Dim tableExists As Integer = Convert.ToInt32(cmdCheck.ExecuteScalar())
+            conn.Close()
+
+            If tableExists = 0 Then
+                CreateCompanySettingsTable()
+            End If
+        Catch ex As Exception
+            ErrorHandler.LogError(ex, "EnsureCompanySettingsTableExists")
+            If conn.State = ConnectionState.Open Then conn.Close()
+        End Try
+    End Sub
+
+    Private Sub CreateCompanySettingsTable()
+        Try
+            conn.Open()
+
+            Dim cmdCreate As New SqlCommand(
+                "IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'CompanySettings') " &
+                "BEGIN " &
+                "   CREATE TABLE CompanySettings ( " &
+                "       SettingName NVARCHAR(50) PRIMARY KEY, " &
+                "       SettingValue NVARCHAR(500) " &
+                "   ) " &
+                "END", conn)
+            cmdCreate.ExecuteNonQuery()
+
+            Dim settings As New Dictionary(Of String, String) From {
+                {"CompanyName", "CELLPHONE REPAIR SHOP"},
+                {"Phone", "(555) 123-4567"},
+                {"Email", "info@cellshop.com"},
+                {"Address", "123 Main Street, City, State"},
+                {"LogoPath", ""},
+                {"WarrantyText", "Warranty: 30 days on all repairs"},
+                {"Password", "admin123"}
+            }
+
+            For Each setting In settings
+                Dim cmdInsert As New SqlCommand(
+                    "IF NOT EXISTS (SELECT 1 FROM CompanySettings WHERE SettingName = @Name) " &
+                    "INSERT INTO CompanySettings (SettingName, SettingValue) VALUES (@Name, @Value)", conn)
+                cmdInsert.Parameters.AddWithValue("@Name", setting.Key)
+                cmdInsert.Parameters.AddWithValue("@Value", setting.Value)
+                cmdInsert.ExecuteNonQuery()
+            Next
+
+            conn.Close()
+            LoadCompanySettings()
+
+        Catch ex As Exception
+            ErrorHandler.ShowError(ex, "CreateCompanySettingsTable")
+        Finally
+            If conn.State = ConnectionState.Open Then conn.Close()
+        End Try
+    End Sub
+
+    Private Sub UpdatePreview()
+        Try
+            If pnlPreview Is Nothing Then Return
+
+            pnlPreview.Controls.Clear()
+
+            Dim lblPreviewTitle As New Label()
+            lblPreviewTitle.Text = CompanySettings.CompanyName
+            lblPreviewTitle.Font = New Font("Arial", 14, FontStyle.Bold)
+            lblPreviewTitle.AutoSize = True
+            lblPreviewTitle.Location = New Point(10, 10)
+            pnlPreview.Controls.Add(lblPreviewTitle)
+
+            Dim lblPreviewPhone As New Label()
+            lblPreviewPhone.Text = "Phone: " & CompanySettings.Phone
+            lblPreviewPhone.Font = New Font("Arial", 9)
+            lblPreviewPhone.AutoSize = True
+            lblPreviewPhone.Location = New Point(10, 40)
+            pnlPreview.Controls.Add(lblPreviewPhone)
+
+            Dim lblPreviewEmail As New Label()
+            lblPreviewEmail.Text = "Email: " & CompanySettings.Email
+            lblPreviewEmail.Font = New Font("Arial", 9)
+            lblPreviewEmail.AutoSize = True
+            lblPreviewEmail.Location = New Point(10, 60)
+            pnlPreview.Controls.Add(lblPreviewEmail)
+
+            Dim lblPreviewAddress As New Label()
+            lblPreviewAddress.Text = "Address: " & CompanySettings.Address
+            lblPreviewAddress.Font = New Font("Arial", 9)
+            lblPreviewAddress.AutoSize = True
+            lblPreviewAddress.Location = New Point(10, 80)
+            pnlPreview.Controls.Add(lblPreviewAddress)
+
+        Catch ex As Exception
+            ErrorHandler.LogError(ex, "UpdatePreview")
+        End Try
+    End Sub
+
+    Private Sub UpdateSetting(settingName As String, settingValue As String)
+        Try
+            Dim cmd As New SqlCommand(
+                "UPDATE CompanySettings SET SettingValue = @Value WHERE SettingName = @Name", conn)
+            cmd.Parameters.AddWithValue("@Name", settingName)
+            cmd.Parameters.AddWithValue("@Value", settingValue)
+            cmd.ExecuteNonQuery()
+        Catch ex As Exception
+            ErrorHandler.ShowError(ex, "UpdateSetting", $"Setting: {settingName}")
+        End Try
+    End Sub
+
+    Private Sub LockCustomizeTab()
+        If txtCompanyName IsNot Nothing Then txtCompanyName.Enabled = False
+        If txtCompanyPhone IsNot Nothing Then txtCompanyPhone.Enabled = False
+        If txtCompanyEmail IsNot Nothing Then txtCompanyEmail.Enabled = False
+        If txtCompanyAddress IsNot Nothing Then txtCompanyAddress.Enabled = False
+        If txtWarranty IsNot Nothing Then txtWarranty.Enabled = False
+        If btnBrowseLogo IsNot Nothing Then btnBrowseLogo.Enabled = False
+        If btnSaveSettings IsNot Nothing Then btnSaveSettings.Enabled = False
+        If btnChangePassword IsNot Nothing Then btnChangePassword.Enabled = False
+        If btnResetDefaults IsNot Nothing Then btnResetDefaults.Enabled = False
+        If btnTestPrint IsNot Nothing Then btnTestPrint.Enabled = False
+
+        If btnLockUnlock IsNot Nothing Then
+            btnLockUnlock.Text = "🔒 Unlock (Enter Password)"
+            btnLockUnlock.BackColor = Color.Red
+        End If
+
+        If txtPassword IsNot Nothing Then
+            txtPassword.Clear()
+            txtPassword.Enabled = True
+        End If
+
+        isUnlocked = False
+    End Sub
+
+    Private Sub UnlockCustomizeTab()
+        If txtCompanyName IsNot Nothing Then txtCompanyName.Enabled = True
+        If txtCompanyPhone IsNot Nothing Then txtCompanyPhone.Enabled = True
+        If txtCompanyEmail IsNot Nothing Then txtCompanyEmail.Enabled = True
+        If txtCompanyAddress IsNot Nothing Then txtCompanyAddress.Enabled = True
+        If txtWarranty IsNot Nothing Then txtWarranty.Enabled = True
+        If btnBrowseLogo IsNot Nothing Then btnBrowseLogo.Enabled = True
+        If btnSaveSettings IsNot Nothing Then btnSaveSettings.Enabled = True
+        If btnChangePassword IsNot Nothing Then btnChangePassword.Enabled = True
+        If btnResetDefaults IsNot Nothing Then btnResetDefaults.Enabled = True
+        If btnTestPrint IsNot Nothing Then btnTestPrint.Enabled = True
+
+        If btnLockUnlock IsNot Nothing Then
+            btnLockUnlock.Text = "🔓 Lock Settings"
+            btnLockUnlock.BackColor = Color.Green
+        End If
+
+        If txtPassword IsNot Nothing Then
+            txtPassword.Enabled = False
+            txtPassword.Clear()
+        End If
+
+        isUnlocked = True
+
+        MessageBox.Show("Settings unlocked! You can now edit company information.",
+                      "Unlocked", MessageBoxButtons.OK, MessageBoxIcon.Information)
+    End Sub
+
+    ' ========================================================================================
+    ' BUTTON HANDLERS
+    ' ========================================================================================
+    Private Sub btnLockUnlock_Click(sender As Object, e As EventArgs) Handles btnLockUnlock.Click
+        Try
+            If isUnlocked Then
+                LockCustomizeTab()
+                MessageBox.Show("Settings locked successfully!", "Locked",
+                              MessageBoxButtons.OK, MessageBoxIcon.Information)
+            Else
+                If String.IsNullOrWhiteSpace(txtPassword.Text) Then
+                    MessageBox.Show("Please enter the password!", "Password Required",
+                                  MessageBoxButtons.OK, MessageBoxIcon.Warning)
+                    txtPassword.Focus()
+                    Return
+                End If
+
+                If txtPassword.Text = CompanySettings.Password Then
+                    UnlockCustomizeTab()
+                Else
+                    MessageBox.Show("Incorrect password! Access denied.", "Access Denied",
+                                  MessageBoxButtons.OK, MessageBoxIcon.Error)
+                    txtPassword.Clear()
+                    txtPassword.Focus()
+                End If
+            End If
+        Catch ex As Exception
+            ErrorHandler.ShowError(ex, "btnLockUnlock_Click")
+        End Try
+    End Sub
+
+    Private Sub btnSaveSettings_Click(sender As Object, e As EventArgs) Handles btnSaveSettings.Click
+        If Not isUnlocked Then
+            MessageBox.Show("Please unlock settings first!", "Locked",
+                          MessageBoxButtons.OK, MessageBoxIcon.Warning)
+            Return
+        End If
+
+        Try
+            conn.Open()
+
+            If txtCompanyName IsNot Nothing Then UpdateSetting("CompanyName", txtCompanyName.Text.Trim())
+            If txtCompanyPhone IsNot Nothing Then UpdateSetting("Phone", txtCompanyPhone.Text.Trim())
+            If txtCompanyEmail IsNot Nothing Then UpdateSetting("Email", txtCompanyEmail.Text.Trim())
+            If txtCompanyAddress IsNot Nothing Then UpdateSetting("Address", txtCompanyAddress.Text.Trim())
+            If txtWarranty IsNot Nothing Then UpdateSetting("WarrantyText", txtWarranty.Text.Trim())
+            UpdateSetting("LogoPath", CompanySettings.LogoPath)
+
+            conn.Close()
+
+            If txtCompanyName IsNot Nothing Then CompanySettings.CompanyName = txtCompanyName.Text.Trim()
+            If txtCompanyPhone IsNot Nothing Then CompanySettings.Phone = txtCompanyPhone.Text.Trim()
+            If txtCompanyEmail IsNot Nothing Then CompanySettings.Email = txtCompanyEmail.Text.Trim()
+            If txtCompanyAddress IsNot Nothing Then CompanySettings.Address = txtCompanyAddress.Text.Trim()
+            If txtWarranty IsNot Nothing Then CompanySettings.WarrantyText = txtWarranty.Text.Trim()
+
+            UpdatePreview()
+
+            MessageBox.Show("Company settings saved successfully!", "Success",
+                          MessageBoxButtons.OK, MessageBoxIcon.Information)
+
+        Catch ex As SqlException When ex.Number = 208
+            MessageBox.Show("Settings table not found. Creating it now...", "Setup",
+                          MessageBoxButtons.OK, MessageBoxIcon.Information)
+            CreateCompanySettingsTable()
+        Catch ex As Exception
+            ErrorHandler.ShowError(ex, "btnSaveSettings_Click")
+        Finally
+            If conn.State = ConnectionState.Open Then conn.Close()
+        End Try
+    End Sub
+
+    Private Sub btnBrowseLogo_Click(sender As Object, e As EventArgs) Handles btnBrowseLogo.Click
+        If Not isUnlocked Then
+            MessageBox.Show("Please unlock settings first!", "Locked",
+                          MessageBoxButtons.OK, MessageBoxIcon.Warning)
+            Return
+        End If
+
+        Try
+            Dim openFileDialog As New OpenFileDialog()
+            openFileDialog.Filter = "Image Files|*.jpg;*.jpeg;*.png;*.bmp;*.gif"
+            openFileDialog.Title = "Select Company Logo"
+
+            If openFileDialog.ShowDialog() = DialogResult.OK Then
+                Dim fileInfo As New FileInfo(openFileDialog.FileName)
+                If fileInfo.Length > 5 * 1024 * 1024 Then
+                    MessageBox.Show("Image file is too large. Please select an image smaller than 5MB.",
+                                  "File Too Large", MessageBoxButtons.OK, MessageBoxIcon.Warning)
+                    Return
+                End If
+
+                Dim img As Image = Image.FromFile(openFileDialog.FileName)
+                If picLogo IsNot Nothing Then picLogo.Image = img
+
+                CompanySettings.LogoPath = openFileDialog.FileName
+                If lblLogoPath IsNot Nothing Then lblLogoPath.Text = Path.GetFileName(openFileDialog.FileName)
+
+                UpdatePreview()
+
+                MessageBox.Show("Logo loaded successfully!" & vbCrLf &
+                              "Click 'Save All Settings' to keep this change.",
+                              "Logo Loaded", MessageBoxButtons.OK, MessageBoxIcon.Information)
+            End If
+        Catch ex As OutOfMemoryException
+            MessageBox.Show("Invalid image file or file is corrupted.", "Invalid Image",
+                          MessageBoxButtons.OK, MessageBoxIcon.Error)
+        Catch ex As Exception
+            ErrorHandler.ShowError(ex, "btnBrowseLogo_Click")
+        End Try
+    End Sub
+
+    Private Sub btnChangePassword_Click(sender As Object, e As EventArgs) Handles btnChangePassword.Click
+        If Not isUnlocked Then
+            MessageBox.Show("Please unlock settings first!", "Locked",
+                          MessageBoxButtons.OK, MessageBoxIcon.Warning)
+            Return
+        End If
+
+        Dim newPassword As String = InputBox("Enter new password (minimum 6 characters):", "Change Password")
+
+        If String.IsNullOrWhiteSpace(newPassword) Then
+            Return
+        End If
+
+        If newPassword.Length < 6 Then
+            MessageBox.Show("Password must be at least 6 characters long!", "Invalid Password",
+                          MessageBoxButtons.OK, MessageBoxIcon.Warning)
+            Return
+        End If
+
+        Try
+            conn.Open()
+            UpdateSetting("Password", newPassword)
+            CompanySettings.Password = newPassword
+            conn.Close()
+
+            MessageBox.Show("Password changed successfully!" & vbCrLf & "Please remember your new password.",
+                          "Success", MessageBoxButtons.OK, MessageBoxIcon.Information)
+            LockCustomizeTab()
+        Catch ex As Exception
+            ErrorHandler.ShowError(ex, "btnChangePassword_Click")
+        Finally
+            If conn.State = ConnectionState.Open Then conn.Close()
+        End Try
+    End Sub
+
+    Private Sub btnResetDefaults_Click(sender As Object, e As EventArgs) Handles btnResetDefaults.Click
+        If Not isUnlocked Then
+            MessageBox.Show("Please unlock settings first!", "Locked",
+                          MessageBoxButtons.OK, MessageBoxIcon.Warning)
+            Return
+        End If
+
+        If MessageBox.Show("Are you sure you want to reset all settings to default?" & vbCrLf &
+                         "This action cannot be undone.", "Confirm Reset",
+                         MessageBoxButtons.YesNo, MessageBoxIcon.Warning) = DialogResult.No Then
+            Return
+        End If
+
+        Try
+            conn.Open()
+
+            UpdateSetting("CompanyName", "CELLPHONE REPAIR SHOP")
+            UpdateSetting("Phone", "(555) 123-4567")
+            UpdateSetting("Email", "info@cellshop.com")
+            UpdateSetting("Address", "123 Main Street, City, State")
+            UpdateSetting("WarrantyText", "Warranty: 30 days on all repairs")
+            UpdateSetting("LogoPath", "")
+
+            conn.Close()
+
+            LoadCompanySettings()
+            UpdatePreview()
+
+            MessageBox.Show("Settings have been reset to defaults!", "Reset Complete",
+                          MessageBoxButtons.OK, MessageBoxIcon.Information)
+
+        Catch ex As Exception
+            ErrorHandler.ShowError(ex, "btnResetDefaults_Click")
+        Finally
+            If conn.State = ConnectionState.Open Then conn.Close()
+        End Try
+    End Sub
+
+    Private Sub btnTestPrint_Click(sender As Object, e As EventArgs) Handles btnTestPrint.Click
+        If Not isUnlocked Then
+            MessageBox.Show("Please unlock settings first!", "Locked",
+                          MessageBoxButtons.OK, MessageBoxIcon.Warning)
+            Return
+        End If
+
+        Try
+            Dim printDoc As New PrintDocument()
+            AddHandler printDoc.PrintPage, AddressOf PrintTestReceiptPage
+
+            Dim printPreview As New PrintPreviewDialog()
+            printPreview.Document = printDoc
+            printPreview.Width = 800
+            printPreview.Height = 600
+            printPreview.ShowDialog()
+        Catch ex As Exception
+            ErrorHandler.ShowError(ex, "btnTestPrint_Click")
+        End Try
+    End Sub
+
+    Private Sub PrintTestReceiptPage(sender As Object, e As PrintPageEventArgs)
+        Try
+            Dim font As New Font("Arial", 12)
+            Dim fontTitle As New Font("Arial", 18, FontStyle.Bold)
+
+            Dim y As Integer = 100
+            Dim centerX As Integer = e.PageBounds.Width / 2
+
+            Dim titleSize = e.Graphics.MeasureString("TEST RECEIPT", fontTitle)
+            e.Graphics.DrawString("TEST RECEIPT", fontTitle, Brushes.Black,
+                                centerX - (titleSize.Width / 2), y)
+            y += 50
+
+            e.Graphics.DrawString("Company: " & CompanySettings.CompanyName, font, Brushes.Black, 100, y)
+            y += 30
+            e.Graphics.DrawString("Phone: " & CompanySettings.Phone, font, Brushes.Black, 100, y)
+            y += 30
+            e.Graphics.DrawString("Email: " & CompanySettings.Email, font, Brushes.Black, 100, y)
+            y += 30
+            e.Graphics.DrawString("Address: " & CompanySettings.Address, font, Brushes.Black, 100, y)
+            y += 50
+
+            e.Graphics.DrawString("Test Item 1                    R 100.00", font, Brushes.Black, 100, y)
+            y += 30
+            e.Graphics.DrawString("Test Item 2                    R 250.00", font, Brushes.Black, 100, y)
+            y += 50
+
+            e.Graphics.DrawString("TOTAL:                         R 350.00", New Font("Arial", 14, FontStyle.Bold), Brushes.Black, 100, y)
+            y += 50
+
+            e.Graphics.DrawString(CompanySettings.WarrantyText, font, Brushes.Gray, 100, y)
+
+        Catch ex As Exception
+            ErrorHandler.LogError(ex, "PrintTestReceiptPage")
+        End Try
+    End Sub
+
+    Private Sub chkDiscount_CheckedChanged(sender As Object, e As EventArgs) Handles chkDiscount.CheckedChanged
+        Try
+            If nudDiscount IsNot Nothing Then
+                nudDiscount.Enabled = chkDiscount.Checked
+                If Not chkDiscount.Checked Then nudDiscount.Value = 0
+            End If
+        Catch ex As Exception
+            ErrorHandler.LogError(ex, "chkDiscount_CheckedChanged")
+        End Try
+    End Sub
+
+    Private Sub ta_Click(sender As Object, e As EventArgs) Handles ta.Click
+
+    End Sub
+End Class
