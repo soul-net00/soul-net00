@@ -1,0 +1,34 @@
+USE CellphoneShopDB;
+GO
+
+-- Receipts table
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'Receipts')
+BEGIN
+    CREATE TABLE Receipts (
+        ReceiptID INT IDENTITY(1,1) PRIMARY KEY,
+        CustomerPhone NVARCHAR(20) NOT NULL,
+        ReceiptDate DATETIME NOT NULL,
+        TotalAmount DECIMAL(10,2) NOT NULL,
+        Notes NVARCHAR(255) NULL,
+        CONSTRAINT FK_Receipts_Customers
+            FOREIGN KEY (CustomerPhone)
+            REFERENCES Customers(Phone)
+    );
+END
+
+-- ReceiptItems table
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'ReceiptItems')
+BEGIN
+    CREATE TABLE ReceiptItems (
+        ItemID INT IDENTITY(1,1) PRIMARY KEY,
+        ReceiptID INT NOT NULL,
+        Description NVARCHAR(255) NOT NULL,
+        Quantity INT NOT NULL,
+        Price DECIMAL(10,2) NOT NULL,
+        Total DECIMAL(10,2) NOT NULL,
+        Category NVARCHAR(100) NOT NULL,
+        CONSTRAINT FK_ReceiptItems_Receipts
+            FOREIGN KEY (ReceiptID)
+            REFERENCES Receipts(ReceiptID)
+    );
+END
